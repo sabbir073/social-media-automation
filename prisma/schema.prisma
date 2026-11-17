@@ -1,0 +1,270 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Platform {
+  FACEBOOK
+  INSTAGRAM
+  YOUTUBE
+  PINTEREST
+  MOCK
+}
+
+enum AccountStatus {
+  CONNECTED
+  NEEDS_REAUTH
+  ERROR
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  CANCELED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REJECTED
+}
+
+enum TargetStatus {
+  SCHEDULED
+  QUEUED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELED
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(USER)
+  timezone     String   @default("UTC")
+  createdAt    DateTime @default(now())
+
+  subscription Subscription?
+  payments     Payment[]
+  accounts     SocialAccount[]
+  media        MediaAsset[]
+  posts        Post[]
+  sheets       SheetConnection[]
+  resetTokens  PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Plan {
+  id               String  @id @default(cuid())
+  slug             String  @unique
+  name             String
+  description      String  @default("")
+  priceCents       Int
+  currency         String  @default("USD")
+  maxAccounts      Int
+  maxPostsPerMonth Int
+  maxSheets        Int     @default(1)
+  isActive         Boolean @default(true)
+  sortOrder        Int     @default(0)
+
+  subscriptions Subscription[]
+  payments      Payment[]
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  userId             String             @unique
+  planId             String
+  status             SubscriptionStatus
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  provider           String             @default("manual")
+  providerRef        String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  userId      String
+  planId      String
+  amountCents Int
+  currency    String
+  provider    String
+  reference   String
+  status      PaymentStatus @default(PENDING)
+  note        String?
+  createdAt   DateTime      @default(now())
+  reviewedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+
+  @@unique([provider, reference])
+  @@index([status])
+}
+
+model SocialAccount {
+  id              String        @id @default(cuid())
+  userId          String
+  platform        Platform
+  externalId      String
+  name            String
+  username        String?
+  avatarUrl       String?
+  accessTokenEnc  String
+  refreshTokenEnc String?
+  tokenExpiresAt  DateTime?
+  scopes          String        @default("")
+  status          AccountStatus @default(CONNECTED)
+  statusMessage   String?
+  lastCheckedAt   DateTime?
+  meta            Json          @default("{}")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slots   TimeSlot[]
+  targets PostTarget[]
+
+  @@unique([userId, platform, externalId])
+}
+
+/// A recurring weekly posting time for one account, in the owner's timezone.
+model TimeSlot {
+  id        String @id @default(cuid())
+  accountId String
+  dayOfWeek Int // 1 = Monday ... 7 = Sunday
+  time      String // "HH:mm"
+
+  account SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, dayOfWeek, time])
+}
+
+model MediaAsset {
+  id           String    @id @default(cuid())
+  userId       String
+  key          String    @unique
+  mime         String
+  size         Int
+  kind         MediaKind
+  originalName String
+  createdAt    DateTime  @default(now())
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  posts PostMedia[]
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  userId    String
+  caption   String   @default("")
+  title     String   @default("")
+  link      String   @default("")
+  source    String   @default("app") // "app" | "sheet"
+  createdAt DateTime @default(now())
+
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media    PostMedia[]
+  targets  PostTarget[]
+  sheetRow SheetRow?
+
+  @@index([userId, createdAt])
+}
+
+model PostMedia {
+  postId   String
+  mediaId  String
+  position Int
+
+  post  Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  media MediaAsset @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@id([postId, mediaId])
+}
+
+/// One post going to one account at its own time, with its own caption and options.
+model PostTarget {
+  id              String       @id @default(cuid())
+  postId          String
+  accountId       String
+  scheduledAt     DateTime
+  status          TargetStatus @default(SCHEDULED)
+  captionOverride String?
+  options         Json         @default("{}")
+  attempts        Int          @default(0)
+  nextAttemptAt   DateTime?
+  error           String?
+  externalPostId  String?
+  externalUrl     String?
+  publishedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  account SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledAt])
+  @@index([accountId, scheduledAt])
+}
+
+model SheetConnection {
+  id            String    @id @default(cuid())
+  userId        String
+  spreadsheetId String
+  gid           String    @default("0")
+  title         String
+  enabled       Boolean   @default(true)
+  lastSyncedAt  DateTime?
+  lastError     String?
+  lastSummary   String?
+  createdAt     DateTime  @default(now())
+
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rows SheetRow[]
+
+  @@unique([userId, spreadsheetId, gid])
+}
+
+model SheetRow {
+  id          String @id @default(cuid())
+  sheetId     String
+  rowNumber   Int
+  contentHash String
+  postId      String @unique
+
+  sheet SheetConnection @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  post  Post            @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([sheetId, rowNumber])
+}
