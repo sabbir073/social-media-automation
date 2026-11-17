@@ -23,7 +23,12 @@ prepare (developer apps, reviews, server, payments) before real users can post.
 - Calendar view, analytics (engagement, views, best times, top posts) and a media library.
 - Recycling (repeat a post every N days), pause/resume per account, duplicate a post.
 - Bulk CSV upload, RSS/Atom auto-posting, saved templates and hashtag groups.
-- Optional AI writing assistant (set `ANTHROPIC_API_KEY`).
+- AI writing assistant and AI planner, with brand voice. Runs on a local model (Docker Model
+  Runner, Ollama, any OpenAI-compatible server) or on Anthropic; see `.env.example`.
+- Bluesky, Telegram and Mastodon, which connect with a token and need no platform review.
+- Drafts and ideas, live post previews, drag-and-drop calendar, getting-started checklist.
+- In-app notifications, weekly email report, installable as an app (PWA).
+- MCP server at `/api/mcp`, so customers can schedule from Claude or ChatGPT.
 - UTM tagging, tracked short links, and a public link-in-bio page.
 - Failure emails, signed webhooks, and a public API with API keys ([docs/API.md](docs/API.md)).
 - A worker publishes due posts, retries temporary failures (3 attempts), and never double-posts.

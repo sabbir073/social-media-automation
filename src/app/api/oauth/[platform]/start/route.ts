@@ -10,7 +10,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pla
   const user = await getUser();
   if (!user) return NextResponse.redirect(`${env.appUrl}/login`);
   const provider = providerBySlug((await params).platform);
-  if (!provider || !provider.isConfigured()) return back("This network is not available yet");
+  if (!provider || !provider.isConfigured() || !provider.authUrl) return back("This network is not available yet");
   if (!isActive(await getSubscription(user.id))) return NextResponse.redirect(`${env.appUrl}/app/billing`);
 
   // The state is signed (ties the callback to this user) and its nonce is also kept in a

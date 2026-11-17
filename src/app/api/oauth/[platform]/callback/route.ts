@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUser, verifyToken } from "@/lib/auth";
 import { getSubscription, isActive } from "@/lib/billing/entitlements";
-import { encrypt } from "@/lib/crypto";
-import { prisma } from "@/lib/db";
+import { saveConnectedAccounts } from "@/lib/accounts";
 import { env } from "@/lib/env";
 import { providerBySlug, redirectUri } from "@/lib/providers";
 
@@ -17,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ plat
   const user = await getUser();
   if (!user) return NextResponse.redirect(`${env.appUrl}/login`);
   const provider = providerBySlug((await params).platform);
-  if (!provider || !provider.isConfigured()) return fail("This network is not available yet");
+  if (!provider || !provider.isConfigured() || !provider.connect) return fail("This network is not available yet");
 
   const q = req.nextUrl.searchParams;
   if (q.get("error")) return fail(q.get("error_description") || "Connection was canceled");
@@ -40,39 +39,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ plat
           : `No ${provider.label} was found on that login`,
       );
     }
-    const existing = await prisma.socialAccount.findMany({ where: { userId: user.id }, select: { platform: true, externalId: true } });
-    const isNew = (id: string) => !existing.some((e) => e.platform === provider.platform && e.externalId === id);
-    let room = sub.plan.maxAccounts - existing.length;
-    let saved = 0;
-    let skipped = 0;
-    for (const a of found) {
-      if (isNew(a.externalId)) {
-        if (room <= 0) {
-          skipped++;
-          continue;
-        }
-        room--;
-      }
-      const data = {
-        name: a.name,
-        username: a.username ?? null,
-        avatarUrl: a.avatarUrl ?? null,
-        accessTokenEnc: encrypt(a.accessToken),
-        refreshTokenEnc: a.refreshToken ? encrypt(a.refreshToken) : null,
-        tokenExpiresAt: a.expiresAt ?? null,
-        scopes: a.scopes ?? "",
-        status: "CONNECTED" as const,
-        statusMessage: null,
-        lastCheckedAt: new Date(),
-        meta: (a.meta ?? {}) as object,
-      };
-      await prisma.socialAccount.upsert({
-        where: { userId_platform_externalId: { userId: user.id, platform: provider.platform, externalId: a.externalId } },
-        update: data,
-        create: { userId: user.id, platform: provider.platform, externalId: a.externalId, ...data },
-      });
-      saved++;
-    }
+    const { saved, skipped } = await saveConnectedAccounts(user.id, sub.plan.maxAccounts, provider.platform, found);
     return done(`connected=${saved}${skipped ? `&skipped=${skipped}` : ""}`);
   } catch (e) {
     console.error(`[oauth] ${provider.platform} callback`, e);

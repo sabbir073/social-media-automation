@@ -1,4 +1,5 @@
 import { ActionButton } from "@/components/ActionButton";
+import { CredentialConnect } from "@/components/CredentialConnect";
 import { Empty, PlatformBadge, StatusBadge } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { getSubscription, isActive } from "@/lib/billing/entitlements";
@@ -46,15 +47,17 @@ export default async function Accounts({
         {providers.length === 0 ? (
           <Empty title="No networks are set up yet">The site owner still needs to add the platform app credentials.</Empty>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 items-start sm:grid-cols-2">
             {providers.map((p) => (
-              <div key={p.platform} className="card flex items-start gap-3">
+              <div key={p.platform} className="card flex flex-wrap items-start gap-3">
                 <PlatformBadge platform={p.platform} />
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{p.label}</p>
                   <p className="muted mt-0.5 text-xs">{p.hint}</p>
                 </div>
-                {active && !full ? (
+                {active && !full && p.credentialFields ? (
+                  <CredentialConnect platform={p.platform} label={p.label} fields={p.credentialFields} />
+                ) : active && !full ? (
                   <a href={`/api/oauth/${p.platform.toLowerCase()}/start`} className="btn-secondary shrink-0">Connect</a>
                 ) : (
                   <span className="muted shrink-0 text-xs">{active ? "Plan limit reached" : "Needs a plan"}</span>
@@ -89,7 +92,7 @@ export default async function Accounts({
                 {a.paused && <span className="badge bg-slate-100 text-slate-600">Paused</span>}
                 <StatusBadge status={a.status} />
                 <div className="flex flex-wrap gap-2">
-                  {a.status === "NEEDS_REAUTH" && active ? (
+                  {a.status === "NEEDS_REAUTH" && active && !providers.find((p) => p.platform === a.platform)?.credentialFields ? (
                     <a href={`/api/oauth/${a.platform.toLowerCase()}/start`} className="btn-secondary">Reconnect</a>
                   ) : (
                     <ActionButton method="POST" url={`/api/accounts/${a.id}/check`}>Check</ActionButton>

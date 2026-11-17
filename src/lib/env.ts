@@ -78,8 +78,15 @@ export const env = {
     get apiKey() {
       return process.env.ANTHROPIC_API_KEY || "";
     },
+    /** OpenAI-compatible endpoint (Docker Model Runner, Ollama, LM Studio, OpenAI...). Takes priority when set. */
+    get baseUrl() {
+      return (process.env.AI_BASE_URL || "").replace(/\/+$/, "");
+    },
+    get baseKey() {
+      return process.env.AI_API_KEY || "";
+    },
     get model() {
-      return process.env.AI_MODEL || "claude-haiku-5-5";
+      return process.env.AI_MODEL || (process.env.AI_BASE_URL ? "ai/qwen3.5:4b-q4_K_M" : "claude-haiku-5-5");
     },
   },
   get smtpUrl() {

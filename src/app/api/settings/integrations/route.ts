@@ -9,6 +9,8 @@ const schema = z.object({
   utmEnabled: z.boolean(),
   utmCampaign: z.string().trim().max(60).regex(/^[\w.-]*$/, "Use letters, numbers, dots, dashes or underscores"),
   shortLinks: z.boolean(),
+  weeklyReport: z.boolean(),
+  brandVoice: z.string().trim().max(600),
   webhookUrl: z.union([z.literal(""), z.string().trim().url("Enter a full https:// address").max(1000)]),
 });
 

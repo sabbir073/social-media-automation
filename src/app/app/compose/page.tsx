@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db";
 
 export const metadata = { title: "New post" };
 
-export default async function Compose({ searchParams }: { searchParams: Promise<{ from?: string; media?: string }> }) {
+export default async function Compose({ searchParams }: { searchParams: Promise<{ from?: string; media?: string; draft?: string }> }) {
   const user = await requireUser();
   const q = await searchParams;
   const [accounts, snippets, source, picked] = await Promise.all([
@@ -23,8 +23,12 @@ export default async function Compose({ searchParams }: { searchParams: Promise<
       : null,
     q.media ? prisma.mediaAsset.findFirst({ where: { id: q.media, userId: user.id } }) : null,
   ]);
+  const draft = q.draft ? await prisma.draft.findFirst({ where: { id: q.draft, userId: user.id } }) : null;
+  const draftMedia = draft?.mediaIds.length ? await prisma.mediaAsset.findMany({ where: { userId: user.id, id: { in: draft.mediaIds } } }) : [];
   const toMedia = (m: { id: string; kind: "IMAGE" | "VIDEO"; originalName: string; key: string }) => ({ id: m.id, kind: m.kind, name: m.originalName, url: `/media/${m.key}` });
-  const initial = source
+  const initial = draft
+    ? { caption: draft.caption, title: draft.title, link: draft.link, media: draft.mediaIds.map((id) => draftMedia.find((m) => m.id === id)).filter((m) => !!m).map((m) => toMedia(m)) }
+    : source
     ? { caption: source.caption, title: source.title, link: source.link, media: source.media.map((pm) => toMedia(pm.media)) }
     : picked
       ? { caption: "", title: "", link: "", media: [toMedia(picked)] }
@@ -44,6 +48,7 @@ export default async function Compose({ searchParams }: { searchParams: Promise<
           timezone={user.timezone}
           aiEnabled={aiEnabled()}
           initial={initial}
+          draftId={draft?.id}
           snippets={snippets.map((s) => ({ id: s.id, name: s.name, body: s.body }))}
           accounts={accounts.map((a) => ({
             id: a.id,

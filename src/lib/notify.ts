@@ -1,7 +1,13 @@
 import { createHmac } from "node:crypto";
+import { prisma } from "./db";
 import { env } from "./env";
 import { sendMail } from "./mail";
 import { assertPublicUrl } from "./ssrf";
+
+/** Adds an entry to the user's in-app notification list. Never throws. */
+export async function notifyInApp(userId: string, kind: "post_failed" | "account" | "feed" | "info", text: string, link = "") {
+  await prisma.notification.create({ data: { userId, kind, text: text.slice(0, 500), link } }).catch(() => {});
+}
 
 type Recipient = { email: string; notifyFailures: boolean; webhookUrl: string | null; webhookSecret: string | null };
 

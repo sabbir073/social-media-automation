@@ -20,6 +20,8 @@ export default async function Settings() {
       <IntegrationsForm
         initial={{
           notifyFailures: user.notifyFailures,
+          weeklyReport: user.weeklyReport,
+          brandVoice: user.brandVoice,
           utmEnabled: user.utmEnabled,
           utmCampaign: user.utmCampaign,
           shortLinks: user.shortLinks,
@@ -35,6 +37,11 @@ export default async function Settings() {
             <code className="rounded bg-slate-100 px-1 break-all">{env.appUrl}/api/v1/posts</code>. See docs/API.md in the project.
           </p>
         </div>
+        <p className="muted text-xs">
+          <strong className="text-slate-700">Use it from Claude or ChatGPT:</strong> add a remote MCP server with the address{" "}
+          <code className="rounded bg-slate-100 px-1 break-all">{env.appUrl}/api/mcp</code> and the same Authorization header. You can then say
+          “schedule this to my Facebook Page tomorrow at 9” in the chat.
+        </p>
         <ApiKeyForm />
         {keys.length > 0 && (
           <ul className="divide-y divide-slate-100 text-sm">

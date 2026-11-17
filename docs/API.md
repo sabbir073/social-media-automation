@@ -58,3 +58,21 @@ Set a webhook address in **Settings**. The app sends a `POST` with this body for
 `post.failed` carries `error` instead of `url`. Each request has an `X-Signature` header: the
 hex HMAC-SHA256 of the raw request body, keyed with the signing secret shown in Settings.
 Verify it before trusting the payload. Delivery is attempted once, with a 10 second timeout.
+
+## MCP server (Claude, ChatGPT and other AI assistants)
+
+The app is also a Model Context Protocol server, so an AI assistant can schedule and review
+posts in plain language.
+
+- Address: `{APP_URL}/api/mcp` (Streamable HTTP)
+- Header: `Authorization: Bearer sk_...` (the same API keys)
+- Tools: `list_accounts`, `create_post`, `list_posts`, `cancel_post`, `get_analytics`
+
+Claude Code example:
+
+```
+claude mcp add --transport http autoposter https://app.example.com/api/mcp --header "Authorization: Bearer sk_..."
+```
+
+The address must be reachable from where the assistant runs, so a `localhost` address only
+works with assistants running on the same computer.

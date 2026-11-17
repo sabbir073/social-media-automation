@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { isActive } from "./billing/entitlements";
 import { prisma } from "./db";
 import { linkForTarget } from "./links";
-import { alertUser, sendWebhook } from "./notify";
+import { alertUser, notifyInApp, sendWebhook } from "./notify";
 import { accountContext, getProvider, markAccountBroken, ProviderError } from "./providers";
 import { filePath, publicUrl } from "./storage";
 
@@ -135,6 +135,7 @@ export async function publishTarget(targetId: string): Promise<"published" | "re
           },
     });
     if (!retry) {
+      void notifyInApp(post.userId, "post_failed", `A post to ${account.name} failed: ${err.message}`, "/app/posts?tab=failed");
       void alertUser(
         post.user,
         `a post to ${account.name} failed`,

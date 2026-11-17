@@ -1,9 +1,11 @@
 import type { Platform, SocialAccount } from "@prisma/client";
 import { decrypt, encrypt } from "../crypto";
 import { prisma } from "../db";
+import { notifyInApp } from "../notify";
 import { facebook, instagram } from "./meta";
 import { mock } from "./mock";
 import { pinterest } from "./pinterest";
+import { bluesky, mastodon, telegram } from "./tokens";
 import { type AccountCtx, type Provider, ProviderError } from "./types";
 import { youtube } from "./youtube";
 
@@ -12,6 +14,9 @@ const all: Record<Platform, Provider> = {
   INSTAGRAM: instagram,
   YOUTUBE: youtube,
   PINTEREST: pinterest,
+  BLUESKY: bluesky,
+  TELEGRAM: telegram,
+  MASTODON: mastodon,
   MOCK: mock,
 };
 
@@ -73,6 +78,15 @@ export async function checkAccount(account: SocialAccount): Promise<{ ok: boolea
 }
 
 export async function markAccountBroken(accountId: string, err: ProviderError) {
+  const before = await prisma.socialAccount.findUnique({ where: { id: accountId } });
+  if (before?.status === "CONNECTED") {
+    await notifyInApp(
+      before.userId,
+      "account",
+      err.reauth ? `${before.name} needs to be reconnected.` : `${before.name} has a connection problem: ${err.message}`,
+      "/app/accounts",
+    );
+  }
   await prisma.socialAccount.update({
     where: { id: accountId },
     data: {

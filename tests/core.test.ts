@@ -155,3 +155,47 @@ describe("advanced features", () => {
     expect(readMetrics(null).views).toBe(0);
   });
 });
+
+describe("easy and modern batch", () => {
+  it("strips model reasoning and wrapping quotes from AI output", async () => {
+    const { cleanOutput, buildSystemPrompt } = await import("@/lib/ai");
+    expect(cleanOutput("<think>plan plan</think>\n\"Big winter sale!\"")).toBe("Big winter sale!");
+    expect(cleanOutput("reasoning without open tag</think>Hello")).toBe("Hello");
+    expect(cleanOutput("  Plain text  ")).toBe("Plain text");
+    const p = buildSystemPrompt("write", { platform: "BLUESKY", brandVoice: "Playful" });
+    expect(p).toContain("under 300 characters");
+    expect(p).toContain("Brand voice to follow: Playful");
+  });
+  it("builds Bluesky facets with UTF-8 byte offsets", async () => {
+    const { bskyFacets } = await import("@/lib/providers/tokens");
+    const text = "নতুন sale → https://a.test/x. #শীত #winter";
+    const facets = bskyFacets(text) as any[];
+    const slice = (f: any) => Buffer.from(text, "utf8").subarray(f.index.byteStart, f.index.byteEnd).toString("utf8");
+    expect(facets.map(slice)).toEqual(["https://a.test/x", "#শীত", "#winter"]);
+    expect(facets[0].features[0].uri).toBe("https://a.test/x");
+    expect(facets[1].features[0].tag).toBe("শীত");
+  });
+  it("validates the token-based networks", async () => {
+    const { getProvider } = await import("@/lib/providers");
+    const base = { title: "", link: "", options: {} };
+    expect(getProvider("BLUESKY").validate({ ...base, caption: "x".repeat(301), media: [] })).not.toEqual([]);
+    expect(getProvider("BLUESKY").validate({ ...base, caption: "hi", media: [{ kind: "VIDEO" }] })).not.toEqual([]);
+    expect(getProvider("BLUESKY").validate({ ...base, caption: "hi", media: [{ kind: "IMAGE" }] })).toEqual([]);
+    expect(getProvider("TELEGRAM").validate({ ...base, caption: "x".repeat(1100), media: [{ kind: "IMAGE" }] })).not.toEqual([]);
+    expect(getProvider("TELEGRAM").validate({ ...base, caption: "x".repeat(1100), media: [] })).toEqual([]);
+    expect(getProvider("MASTODON").validate({ ...base, caption: "", media: [] })).not.toEqual([]);
+    expect(getProvider("MASTODON").validate({ ...base, caption: "hello", link: "https://a.test", media: [] })).toEqual([]);
+  });
+  it("answers MCP initialize, tools/list and unknown methods", async () => {
+    const { handleRpc, TOOLS } = await import("@/lib/mcp");
+    const user = {} as never;
+    const init: any = await handleRpc(user, { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } }, "App");
+    expect(init.result.protocolVersion).toBe("2025-03-26");
+    expect(init.result.capabilities.tools).toBeDefined();
+    const list: any = await handleRpc(user, { jsonrpc: "2.0", id: 2, method: "tools/list" }, "App");
+    expect(list.result.tools.map((t: any) => t.name)).toEqual(TOOLS.map((t) => t.name));
+    expect(await handleRpc(user, { jsonrpc: "2.0", method: "notifications/initialized" }, "App")).toBeNull();
+    const bad: any = await handleRpc(user, { jsonrpc: "2.0", id: 3, method: "nope" }, "App");
+    expect(bad.error.code).toBe(-32601);
+  });
+});

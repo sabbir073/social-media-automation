@@ -208,10 +208,10 @@ export function BioForm({ initial, baseUrl }: { initial: { slug: string; title: 
   );
 }
 
-export function IntegrationsForm({ initial }: { initial: { notifyFailures: boolean; utmEnabled: boolean; utmCampaign: string; shortLinks: boolean; webhookUrl: string; webhookSecret: string | null } }) {
+export function IntegrationsForm({ initial }: { initial: { notifyFailures: boolean; weeklyReport: boolean; brandVoice: string; utmEnabled: boolean; utmCampaign: string; shortLinks: boolean; webhookUrl: string; webhookSecret: string | null } }) {
   const [v, setV] = useState(initial);
   const [msg, setMsg] = useState<Msg>(null);
-  const check = (k: "notifyFailures" | "utmEnabled" | "shortLinks", label: string, hint: string) => (
+  const check = (k: "notifyFailures" | "weeklyReport" | "utmEnabled" | "shortLinks", label: string, hint: string) => (
     <label className="flex items-start gap-3 text-sm">
       <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" checked={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.checked })} />
       <span><span className="font-medium text-slate-800">{label}</span><br /><span className="muted text-xs">{hint}</span></span>
@@ -232,8 +232,14 @@ export function IntegrationsForm({ initial }: { initial: { notifyFailures: boole
         }
       }}
     >
-      <h2 className="font-semibold">Notifications, links and webhooks</h2>
+      <h2 className="font-semibold">Notifications, AI, links and webhooks</h2>
       {check("notifyFailures", "Email me when a post fails", "Sent once a post has permanently failed.")}
+      {check("weeklyReport", "Email me a weekly report", "A short summary of the week's posts, engagement and what is scheduled next.")}
+      <div>
+        <label className="label" htmlFor="brand-voice">Brand voice for the AI assistant <span className="muted font-normal">(optional)</span></label>
+        <textarea id="brand-voice" className="input" value={v.brandVoice} onChange={(e) => setV({ ...v, brandVoice: e.target.value })} maxLength={600} placeholder="Friendly and playful. We sell handmade jewellery to young women. Short sentences, a little humour, never pushy." />
+        <p className="muted mt-1 text-xs">Describe your brand and how it talks. The AI follows this whenever it writes for you.</p>
+      </div>
       {check("utmEnabled", "Add UTM tracking to links", "Adds utm_source (the network), utm_medium=social and your campaign name to each post's link.")}
       {v.utmEnabled && (
         <div>
@@ -287,5 +293,47 @@ export function ApiKeyForm() {
       )}
       <Note msg={msg} />
     </form>
+  );
+}
+
+export function IdeaForm() {
+  const router = useRouter();
+  const [text, setText] = useState("");
+  const [msg, setMsg] = useState<Msg>(null);
+  return (
+    <form
+      className="card flex flex-wrap gap-2"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        try {
+          await api("POST", "/api/drafts", { caption: text });
+          setText("");
+          setMsg(null);
+          router.refresh();
+        } catch (err) {
+          setMsg({ ok: false, text: (err as Error).message });
+        }
+      }}
+    >
+      <input className="input min-w-0 flex-1" value={text} onChange={(e) => setText(e.target.value)} placeholder="Write an idea…" aria-label="New idea" maxLength={5000} required />
+      <button className="btn">Save idea</button>
+      <Note msg={msg} />
+    </form>
+  );
+}
+
+export function DismissButton({ url, children }: { url: string; children: React.ReactNode }) {
+  const router = useRouter();
+  return (
+    <button
+      type="button"
+      className="text-sm text-slate-500 hover:underline"
+      onClick={async () => {
+        await api("POST", url).catch(() => {});
+        router.refresh();
+      }}
+    >
+      {children}
+    </button>
   );
 }

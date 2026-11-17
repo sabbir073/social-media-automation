@@ -30,12 +30,14 @@ export function Composer({
   snippets = [],
   aiEnabled = false,
   initial,
+  draftId,
 }: {
   accounts: Account[];
   timezone: string;
   snippets?: Snippet[];
   aiEnabled?: boolean;
   initial?: Initial;
+  draftId?: string;
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -131,6 +133,19 @@ export function Composer({
     }
   }
 
+  async function saveDraft() {
+    setError("");
+    setBusy(true);
+    try {
+      await api("POST", "/api/drafts", { id: draftId, caption, title, link, mediaIds: media.map((m) => m.id) });
+      router.push("/app/drafts");
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -164,6 +179,7 @@ export function Composer({
     setBusy(true);
     try {
       await api("POST", "/api/posts", { caption, title, link, mediaIds: media.map((m) => m.id), targets: payload });
+      if (draftId) await api("DELETE", `/api/drafts/${draftId}`).catch(() => {});
       router.push("/app/posts");
       router.refresh();
     } catch (err) {
@@ -388,6 +404,49 @@ export function Composer({
       </fieldset>
 
       {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {selected.length > 0 && (
+        <section aria-label="Preview">
+          <h2 className="mb-2 text-lg font-semibold">Preview</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {selected.map((a) => {
+              const t = targets[a.id];
+              const limit = PLATFORM_META[a.platform].limit;
+              const text = (t.customCaption ? t.caption : caption) || "";
+              const first = media[0];
+              return (
+                <article key={a.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white text-sm shadow-sm">
+                  <header className="flex items-center gap-2 p-3">
+                    <PlatformBadge platform={a.platform} />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{a.name}</p>
+                      <p className="muted text-xs">{PLATFORM_META[a.platform].label} · {t.mode === "now" ? "now" : t.when.replace("T", " ")}</p>
+                    </div>
+                  </header>
+                  {(a.platform === "YOUTUBE" || a.platform === "PINTEREST") && title && <p className="px-3 pb-1 font-semibold">{title}</p>}
+                  <p className="px-3 pb-3 whitespace-pre-line break-words text-slate-800">
+                    {text.slice(0, limit) || <span className="muted">Your text appears here</span>}
+                    {text.length > limit && <span className="bg-red-100 text-red-700">{text.slice(limit, limit + 200)}</span>}
+                  </p>
+                  {first &&
+                    (first.kind === "IMAGE" ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={first.url} alt="" className="max-h-64 w-full object-cover" />
+                    ) : (
+                      <video src={first.url} className="max-h-64 w-full bg-black" muted preload="metadata" />
+                    ))}
+                  {media.length > 1 && <p className="muted px-3 py-1 text-xs">+{media.length - 1} more file{media.length === 2 ? "" : "s"}</p>}
+                  {link && <p className="truncate border-t border-slate-100 bg-slate-50 px-3 py-2 text-xs text-brand-700">{link}</p>}
+                  {text.length > limit && <p role="alert" className="px-3 py-2 text-xs text-red-700">{text.length - limit} characters over the {PLATFORM_META[a.platform].label} limit.</p>}
+                </article>
+              );
+            })}
+          </div>
+          <p className="muted mt-2 text-xs">A simplified preview. Each network applies its own final layout.</p>
+        </section>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+      <button type="button" className="btn-secondary px-4 py-2" disabled={busy || uploading > 0} onClick={saveDraft}>Save as draft</button>
       <button className="btn" disabled={busy || uploading > 0}>
         {busy
           ? "Saving…"
@@ -397,6 +456,7 @@ export function Composer({
               ? `Schedule to ${selected.length} accounts`
               : "Schedule post"}
       </button>
+      </div>
     </form>
   );
 }

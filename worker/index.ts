@@ -18,6 +18,7 @@ import { claimDueTargets, publishTarget, recoverStuckTargets } from "@/lib/publi
 import { PUBLISH_QUEUE, publishQueue } from "@/lib/queue";
 import { syncFeed } from "@/lib/feeds";
 import { refreshMetrics } from "@/lib/metrics";
+import { sendWeeklyReports } from "@/lib/reports";
 import { syncSheet } from "@/lib/sheets";
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...a);
@@ -104,6 +105,8 @@ const timers = [
   every(60 * 60_000, "maintenance", async () => {
     const expired = await expireSubscriptions();
     if (expired) log(`expired ${expired} subscription(s)`);
+    const reports = await sendWeeklyReports();
+    if (reports) log(`sent ${reports} weekly report(s)`);
     const stale = await prisma.socialAccount.findMany({
       where: { OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: new Date(Date.now() - 24 * 3_600_000) } }] },
       take: 500,

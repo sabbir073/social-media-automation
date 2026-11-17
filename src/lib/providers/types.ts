@@ -65,9 +65,13 @@ export interface Provider {
   /** Shown on the Accounts page to tell users what they need before connecting. */
   hint: string;
   isConfigured(): boolean;
-  authUrl(state: string, redirectUri: string): string;
-  /** Exchanges the OAuth code and returns every account the user granted. */
-  connect(code: string, redirectUri: string): Promise<ConnectedAccount[]>;
+  /** OAuth networks: where to send the user to grant access. */
+  authUrl?(state: string, redirectUri: string): string;
+  /** OAuth networks: exchanges the code and returns every account the user granted. */
+  connect?(code: string, redirectUri: string): Promise<ConnectedAccount[]>;
+  /** Token-based networks: the fields the user fills in instead of an OAuth redirect. */
+  credentialFields?: CredentialField[];
+  connectWithCredentials?(values: Record<string, string>): Promise<ConnectedAccount[]>;
   refresh?(refreshToken: string): Promise<TokenUpdate>;
   /** Throws ProviderError if the connection no longer works. */
   check(account: AccountCtx): Promise<void>;
@@ -77,6 +81,8 @@ export interface Provider {
   /** Current engagement numbers for a post this provider published. */
   metrics?(account: AccountCtx, externalPostId: string): Promise<Metrics>;
 }
+
+export type CredentialField = { name: string; label: string; secret?: boolean; placeholder?: string; help?: string };
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
