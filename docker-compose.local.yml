@@ -1,0 +1,8 @@
+# Local run on your own computer: exposes the app on http://localhost:3100 (set APP_URL to match) and skips Caddy/HTTPS.
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+services:
+  web:
+    ports:
+      - "3100:3000"
+  caddy:
+    profiles: ["proxy"]
