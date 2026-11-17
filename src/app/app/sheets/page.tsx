@@ -1,5 +1,6 @@
 import { ActionButton } from "@/components/ActionButton";
 import { SheetConnect } from "@/components/SheetConnect";
+import { BulkUpload } from "@/components/SimpleForms";
 import { Empty } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -22,7 +23,7 @@ export default async function Sheets() {
   return (
     <div className="max-w-4xl space-y-8">
       <div>
-        <h1 className="h1">Schedule from Google Sheets</h1>
+        <h1 className="h1">Sheets and bulk upload</h1>
         <p className="muted mt-1">
           Plan posts in a spreadsheet. Each row is one post to one account at its own date and time, so every network
           can follow a different timetable. The sheet is checked every 5 minutes.
@@ -66,6 +67,15 @@ export default async function Sheets() {
           <li>Leave <strong>status</strong> empty. Editing a row before it publishes updates the post; deleting the row cancels it.</li>
         </ul>
         <SheetConnect />
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-semibold">Bulk upload a CSV file</h2>
+        <p className="text-sm text-slate-700">
+          Schedule up to 500 posts at once. Use the same columns as above (in any spreadsheet app, export as CSV).
+          Each row is scheduled once; rows with problems are listed so you can fix and upload them again.
+        </p>
+        <BulkUpload />
       </section>
 
       <section>

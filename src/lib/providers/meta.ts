@@ -11,6 +11,7 @@ import { filePath, publicUrl } from "../storage";
 import {
   type AccountCtx,
   type ConnectedAccount,
+  type Metrics,
   type Draft,
   type Provider,
   ProviderError,
@@ -166,6 +167,20 @@ export const facebook: Provider = {
     const r = await post(`${graph()}/${a.externalId}/feed`, params);
     return { externalId: r.id, url: `https://www.facebook.com/${r.id}` };
   },
+
+  async metrics(a, id): Promise<Metrics> {
+    const r = await call(
+      `${graph()}/${id}?${new URLSearchParams({
+        fields: "likes.summary(true).limit(0),comments.summary(true).limit(0),shares",
+        access_token: a.accessToken,
+      })}`,
+    );
+    return {
+      likes: r.likes?.summary?.total_count ?? 0,
+      comments: r.comments?.summary?.total_count ?? 0,
+      shares: r.shares?.count ?? 0,
+    };
+  },
 };
 
 /** Instagram only accepts JPEG images; convert anything else to a temporary JPEG. */
@@ -274,5 +289,12 @@ export const instagram: Provider = {
     } finally {
       for (const key of temp) await unlink(filePath(key)).catch(() => {});
     }
+  },
+
+  async metrics(a, id): Promise<Metrics> {
+    const r = await call(
+      `${graph()}/${id}?${new URLSearchParams({ fields: "like_count,comments_count", access_token: a.accessToken })}`,
+    );
+    return { likes: r.like_count ?? 0, comments: r.comments_count ?? 0 };
   },
 };

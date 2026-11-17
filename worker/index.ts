@@ -4,8 +4,9 @@
  *
  *   every 15 s   move due targets onto the publish queue
  *   every 5 min  sync Google Sheets, recover targets orphaned by a crash
- *   every hour   expire subscriptions, re-verify account connections (refreshing tokens),
- *                delete uploads that were never used
+ *   every 15 min check RSS feeds for new items
+ *   every hour   refresh engagement numbers of recent posts
+ *   every hour   expire subscriptions, re-verify account connections (refreshing tokens)
  */
 import { Worker } from "bullmq";
 import IORedis from "ioredis";
@@ -15,8 +16,9 @@ import { env } from "@/lib/env";
 import { checkAccount } from "@/lib/providers";
 import { claimDueTargets, publishTarget, recoverStuckTargets } from "@/lib/publish";
 import { PUBLISH_QUEUE, publishQueue } from "@/lib/queue";
+import { syncFeed } from "@/lib/feeds";
+import { refreshMetrics } from "@/lib/metrics";
 import { syncSheet } from "@/lib/sheets";
-import { removeFile } from "@/lib/storage";
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...a);
 
@@ -78,6 +80,22 @@ const timers = [
     }
   }),
 
+  every(15 * 60_000, "feeds", async () => {
+    const feeds = await prisma.feed.findMany({ where: { enabled: true }, select: { id: true } });
+    for (const f of feeds) {
+      try {
+        log(`feed ${f.id}: ${await syncFeed(f.id)}`);
+      } catch (e) {
+        log(`feed ${f.id} failed: ${(e as Error).message}`);
+      }
+    }
+  }),
+
+  every(60 * 60_000, "metrics", async () => {
+    const n = await refreshMetrics();
+    if (n) log(`refreshed engagement numbers for ${n} post(s)`);
+  }),
+
   every(5 * 60_000, "recover", async () => {
     const r = await recoverStuckTargets();
     if (r.requeued || r.failed) log(`recovered ${r.requeued} queued, failed ${r.failed} interrupted`);
@@ -93,16 +111,6 @@ const timers = [
     for (const account of stale) await checkAccount(account);
     if (stale.length) log(`re-verified ${stale.length} account connection(s)`);
 
-    // Uploads that were never attached to a post (abandoned drafts) are removed after a day.
-    const orphans = await prisma.mediaAsset.findMany({
-      where: { posts: { none: {} }, createdAt: { lt: new Date(Date.now() - 24 * 3_600_000) } },
-      take: 500,
-    });
-    for (const m of orphans) {
-      await prisma.mediaAsset.delete({ where: { id: m.id } });
-      await removeFile(m.key);
-    }
-    if (orphans.length) log(`removed ${orphans.length} unused upload(s)`);
   }),
 ];
 

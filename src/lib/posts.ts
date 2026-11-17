@@ -9,6 +9,9 @@ export type TargetInput = {
   scheduledAt: Date;
   captionOverride?: string | null;
   options?: Record<string, unknown>;
+  /** Recycling: repeat every N days, `repeatCount` more times. */
+  repeatEveryDays?: number | null;
+  repeatCount?: number | null;
 };
 
 export type PostInput = {
@@ -64,6 +67,8 @@ export async function createPost(userId: string, input: PostInput, source: "app"
           scheduledAt: t.scheduledAt,
           captionOverride: t.captionOverride?.trim() ? t.captionOverride : null,
           options: (t.options ?? {}) as Prisma.InputJsonValue,
+          repeatEveryDays: t.repeatEveryDays && t.repeatCount ? t.repeatEveryDays : null,
+          repeatRemaining: t.repeatEveryDays && t.repeatCount ? t.repeatCount : null,
         })),
       },
     },

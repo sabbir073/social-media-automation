@@ -14,6 +14,8 @@ const schema = z.object({
         scheduledAt: z.union([z.literal("now"), z.string().datetime({ offset: true })]),
         captionOverride: z.string().max(5000).nullish(),
         options: z.record(z.unknown()).default({}),
+        repeatEveryDays: z.number().int().min(1).max(365).nullish(),
+        repeatCount: z.number().int().min(1).max(52).nullish(),
       }),
     )
     .min(1, "Choose at least one account")

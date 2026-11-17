@@ -4,22 +4,47 @@ import { DateTime } from "luxon";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { api } from "@/lib/client";
+import { PLATFORM_META } from "@/lib/platforms";
 import { PlatformBadge } from "./ui";
 
 type Account = { id: string; name: string; platform: string; healthy: boolean; hasSlots: boolean };
 type Media = { id: string; kind: "IMAGE" | "VIDEO"; name: string; url: string };
-type Target = { mode: "time" | "now"; when: string; caption: string; customCaption: boolean; boardId: string; privacy: string };
+type Target = { mode: "time" | "now"; when: string; caption: string; customCaption: boolean; boardId: string; privacy: string; repeat: string; repeatCount: number };
+type Snippet = { id: string; name: string; body: string };
+type Initial = { caption: string; title: string; link: string; media: Media[] };
+
+const REPEATS = [
+  ["0", "Do not repeat"],
+  ["1", "Every day"],
+  ["7", "Every week"],
+  ["14", "Every 2 weeks"],
+  ["30", "Every 30 days"],
+];
 type Board = { id: string; name: string };
 
 const INPUT_FORMAT = "yyyy-MM-dd'T'HH:mm";
 
-export function Composer({ accounts, timezone }: { accounts: Account[]; timezone: string }) {
+export function Composer({
+  accounts,
+  timezone,
+  snippets = [],
+  aiEnabled = false,
+  initial,
+}: {
+  accounts: Account[];
+  timezone: string;
+  snippets?: Snippet[];
+  aiEnabled?: boolean;
+  initial?: Initial;
+}) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [caption, setCaption] = useState("");
-  const [title, setTitle] = useState("");
-  const [link, setLink] = useState("");
-  const [media, setMedia] = useState<Media[]>([]);
+  const [caption, setCaption] = useState(initial?.caption ?? "");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [link, setLink] = useState(initial?.link ?? "");
+  const [media, setMedia] = useState<Media[]>(initial?.media ?? []);
+  const [library, setLibrary] = useState<Media[] | null>(null);
+  const [aiBusy, setAiBusy] = useState("");
   const [targets, setTargets] = useState<Record<string, Target>>({});
   const [boards, setBoards] = useState<Record<string, Board[] | "loading" | "error">>({});
   const [uploading, setUploading] = useState(0);
@@ -37,7 +62,7 @@ export function Composer({ accounts, timezone }: { accounts: Account[]; timezone
         const { [a.id]: _removed, ...rest } = t;
         return rest;
       }
-      return { ...t, [a.id]: { mode: "time", when: defaultWhen(), caption: "", customCaption: false, boardId: "", privacy: "public" } };
+      return { ...t, [a.id]: { mode: "time", when: defaultWhen(), caption: "", customCaption: false, boardId: "", privacy: "public", repeat: "0", repeatCount: 4 } };
     });
     if (a.platform === "PINTEREST" && !boards[a.id]) {
       setBoards((b) => ({ ...b, [a.id]: "loading" }));
@@ -70,9 +95,30 @@ export function Composer({ accounts, timezone }: { accounts: Account[]; timezone
     if (fileInput.current) fileInput.current.value = "";
   }
 
-  async function removeMedia(id: string) {
-    setMedia((m) => m.filter((x) => x.id !== id));
-    await api("DELETE", `/api/media/${id}`).catch(() => {});
+  // Files stay in the media library when removed from a post.
+  const removeMedia = (id: string) => setMedia((m) => m.filter((x) => x.id !== id));
+
+  async function openLibrary() {
+    setError("");
+    try {
+      setLibrary((await api<{ media: Media[] }>("GET", "/api/media")).media);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function ai(action: "write" | "rewrite" | "shorten" | "hashtags") {
+    setError("");
+    setAiBusy(action);
+    try {
+      const platform = selected.length === 1 ? selected[0].platform : undefined;
+      const r = await api<{ text: string }>("POST", "/api/ai", { action, text: caption, platform });
+      setCaption(action === "hashtags" ? `${caption.trimEnd()}\n\n${r.text}` : r.text);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAiBusy("");
+    }
   }
 
   async function nextSlot(id: string) {
@@ -106,7 +152,14 @@ export function Composer({ accounts, timezone }: { accounts: Account[]; timezone
         if (Array.isArray(list)) options.boardName = list.find((b) => b.id === t.boardId)?.name;
       }
       if (a.platform === "YOUTUBE") options.privacy = t.privacy;
-      payload.push({ accountId: a.id, scheduledAt, captionOverride: t.customCaption ? t.caption : null, options });
+      payload.push({
+        accountId: a.id,
+        scheduledAt,
+        captionOverride: t.customCaption ? t.caption : null,
+        options,
+        repeatEveryDays: t.repeat !== "0" ? Number(t.repeat) : null,
+        repeatCount: t.repeat !== "0" ? t.repeatCount : null,
+      });
     }
     setBusy(true);
     try {
@@ -125,7 +178,38 @@ export function Composer({ accounts, timezone }: { accounts: Account[]; timezone
         <div>
           <label className="label" htmlFor="caption">Text</label>
           <textarea id="caption" className="input min-h-32" value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={5000} placeholder="What do you want to share?" />
-          <p className="muted mt-1 text-right text-xs tabular-nums">{caption.length} characters</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {snippets.length > 0 && (
+              <select
+                className="input w-auto py-1 text-xs"
+                value=""
+                aria-label="Insert a saved template"
+                onChange={(e) => {
+                  const s = snippets.find((x) => x.id === e.target.value);
+                  if (s) setCaption((c) => (c.trim() ? `${c.trimEnd()}\n\n${s.body}` : s.body));
+                }}
+              >
+                <option value="">Insert template…</option>
+                {snippets.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+            {aiEnabled &&
+              ([["write", "Write with AI"], ["rewrite", "Improve"], ["shorten", "Shorten"], ["hashtags", "Add hashtags"]] as const).map(([action, label]) => (
+                <button key={action} type="button" className="btn-secondary py-1 text-xs" disabled={Boolean(aiBusy) || caption.trim().length < 3} onClick={() => ai(action)}>
+                  {aiBusy === action ? "Working…" : label}
+                </button>
+              ))}
+            <span className="muted ml-auto text-xs tabular-nums">
+              {selected.length === 0
+                ? `${caption.length} characters`
+                : [...new Set(selected.map((a) => a.platform))].map((p) => (
+                    <span key={p} className={`ml-3 ${caption.length > PLATFORM_META[p].limit ? "font-medium text-red-600" : ""}`}>
+                      {PLATFORM_META[p].label} {caption.length}/{PLATFORM_META[p].limit}
+                    </span>
+                  ))}
+            </span>
+          </div>
+          {aiEnabled && <p className="muted mt-1 text-xs">For “Write with AI”, type a topic or a few notes in the box first.</p>}
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -170,7 +254,44 @@ export function Composer({ accounts, timezone }: { accounts: Account[]; timezone
               />
             </label>
           </div>
-          <p className="muted mt-2 text-xs">JPG, PNG, WEBP, MP4 or MOV.</p>
+          <p className="muted mt-2 text-xs">
+            JPG, PNG, WEBP, MP4 or MOV.{" "}
+            <button type="button" className="text-brand-600 hover:underline" onClick={openLibrary}>Choose from media library</button>
+          </p>
+          {library && (
+            <div className="mt-3 rounded-lg border border-slate-200 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-medium">Media library</span>
+                <button type="button" className="text-sm text-slate-500 hover:underline" onClick={() => setLibrary(null)}>Close</button>
+              </div>
+              {library.length === 0 ? (
+                <p className="muted">Nothing uploaded yet.</p>
+              ) : (
+                <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto">
+                  {library.map((m) => {
+                    const picked = media.some((x) => x.id === m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        aria-pressed={picked}
+                        title={m.name}
+                        onClick={() => setMedia((cur) => (picked ? cur.filter((x) => x.id !== m.id) : [...cur, m]))}
+                        className={`h-16 w-16 overflow-hidden rounded-lg border-2 bg-slate-100 text-xs text-slate-500 ${picked ? "border-brand-600" : "border-transparent"}`}
+                      >
+                        {m.kind === "IMAGE" ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={m.url} alt={m.name} className="h-full w-full object-cover" />
+                        ) : (
+                          "Video"
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -238,6 +359,20 @@ export function Composer({ accounts, timezone }: { accounts: Account[]; timezone
                       </select>
                     </div>
                   )}
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label className="label" htmlFor={`repeat-${a.id}`}>Repeat</label>
+                      <select id={`repeat-${a.id}`} className="input w-auto" value={t.repeat} onChange={(e) => patch(a.id, { repeat: e.target.value })}>
+                        {REPEATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                    </div>
+                    {t.repeat !== "0" && (
+                      <div>
+                        <label className="label" htmlFor={`count-${a.id}`}>More times</label>
+                        <input id={`count-${a.id}`} type="number" min={1} max={52} className="input w-24" value={t.repeatCount} onChange={(e) => patch(a.id, { repeatCount: Math.min(52, Math.max(1, Number(e.target.value) || 1)) })} />
+                      </div>
+                    )}
+                  </div>
                   <label className="flex items-center gap-2 text-sm text-slate-700">
                     <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={t.customCaption} onChange={(e) => patch(a.id, { customCaption: e.target.checked, caption: t.caption || caption })} />
                     Use different text here

@@ -20,6 +20,12 @@ prepare (developer apps, reviews, server, payments) before real users can post.
 - Weekly posting slots per account, with "next free slot" in the composer.
 - Google Sheets scheduling: one row per post per account; edits and deletions sync; status is
   written back to the sheet.
+- Calendar view, analytics (engagement, views, best times, top posts) and a media library.
+- Recycling (repeat a post every N days), pause/resume per account, duplicate a post.
+- Bulk CSV upload, RSS/Atom auto-posting, saved templates and hashtag groups.
+- Optional AI writing assistant (set `ANTHROPIC_API_KEY`).
+- UTM tagging, tracked short links, and a public link-in-bio page.
+- Failure emails, signed webhooks, and a public API with API keys ([docs/API.md](docs/API.md)).
 - A worker publishes due posts, retries temporary failures (3 attempts), and never double-posts.
 
 ## Stack

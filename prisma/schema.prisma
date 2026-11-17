@@ -62,6 +62,19 @@ model User {
   timezone     String   @default("UTC")
   createdAt    DateTime @default(now())
 
+  notifyFailures Boolean @default(true)
+  webhookUrl     String?
+  webhookSecret  String?
+  utmEnabled     Boolean @default(false)
+  utmCampaign    String  @default("social")
+  shortLinks     Boolean @default(false)
+
+  snippets   Snippet[]
+  shortLinkz ShortLink[]
+  feeds      Feed[]
+  apiKeys    ApiKey[]
+  bioPage    BioPage?
+
   subscription Subscription?
   payments     Payment[]
   accounts     SocialAccount[]
@@ -149,6 +162,7 @@ model SocialAccount {
   statusMessage   String?
   lastCheckedAt   DateTime?
   meta            Json          @default("{}")
+  paused          Boolean       @default(false)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -228,6 +242,12 @@ model PostTarget {
   externalPostId  String?
   externalUrl     String?
   publishedAt     DateTime?
+  /// Recycling: after publishing, schedule the same post again this many days later.
+  repeatEveryDays Int?
+  repeatRemaining Int?
+  /// Engagement numbers fetched from the network: likes, comments, shares, views, saves.
+  metrics         Json?
+  metricsAt       DateTime?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
@@ -267,4 +287,87 @@ model SheetRow {
   post  Post            @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@unique([sheetId, rowNumber])
+}
+
+/// Reusable text: caption templates and hashtag groups.
+model Snippet {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  body      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Tracked redirect: {APP_URL}/l/{code} -> url. Used for post links and link-in-bio links.
+model ShortLink {
+  id        String   @id @default(cuid())
+  userId    String
+  code      String   @unique
+  url       String
+  label     String   @default("")
+  clicks    Int      @default(0)
+  targetId  String?  @unique
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+/// RSS/Atom feed whose new items are posted automatically.
+model Feed {
+  id            String    @id @default(cuid())
+  userId        String
+  url           String
+  title         String
+  accountIds    String[]
+  mode          String    @default("slot") // "slot" = next free posting slot, "now" = immediately
+  template      String    @default("{title}")
+  enabled       Boolean   @default(true)
+  lastCheckedAt DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items FeedItem[]
+
+  @@unique([userId, url])
+}
+
+model FeedItem {
+  id     String @id @default(cuid())
+  feedId String
+  guid   String
+
+  feed Feed @relation(fields: [feedId], references: [id], onDelete: Cascade)
+
+  @@unique([feedId, guid])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  prefix     String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Public link-in-bio page at {APP_URL}/b/{slug}.
+model BioPage {
+  id     String @id @default(cuid())
+  userId String @unique
+  slug   String @unique
+  title  String
+  bio    String @default("")
+  /// [{ "label": "...", "url": "..." }]
+  links  Json   @default("[]")
+  views  Int    @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

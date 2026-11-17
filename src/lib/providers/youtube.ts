@@ -4,6 +4,7 @@ import {
   type AccountCtx,
   type ConnectedAccount,
   type Draft,
+  type Metrics,
   type Provider,
   ProviderError,
   type PublishInput,
@@ -188,5 +189,13 @@ export const youtube: Provider = {
       await fh.close();
     }
     throw new ProviderError("YouTube upload ended without a response", { retryable: true });
+  },
+
+  async metrics(a, id): Promise<Metrics> {
+    const r = await call(`https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${a.accessToken}` },
+    });
+    const s = r.items?.[0]?.statistics ?? {};
+    return { views: Number(s.viewCount ?? 0), likes: Number(s.likeCount ?? 0), comments: Number(s.commentCount ?? 0) };
   },
 };

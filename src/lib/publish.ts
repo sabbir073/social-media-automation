@@ -1,6 +1,8 @@
 import { access } from "node:fs/promises";
 import { isActive } from "./billing/entitlements";
 import { prisma } from "./db";
+import { linkForTarget } from "./links";
+import { alertUser, sendWebhook } from "./notify";
 import { accountContext, getProvider, markAccountBroken, ProviderError } from "./providers";
 import { filePath, publicUrl } from "./storage";
 
@@ -55,7 +57,7 @@ export async function publishTarget(targetId: string): Promise<"published" | "re
     const input = {
       caption: target.captionOverride ?? post.caption,
       title: post.title,
-      link: post.link,
+      link: await linkForTarget(post.link, post.user, account.platform, target.id, post.title || post.caption.slice(0, 60)),
       media,
       options: (target.options ?? {}) as Record<string, unknown>,
     };
@@ -83,6 +85,30 @@ export async function publishTarget(targetId: string): Promise<"published" | "re
         data: { status: "CONNECTED", statusMessage: null, lastCheckedAt: new Date() },
       });
     }
+    // Recycling: queue the next repeat of this post for the same account.
+    if (target.repeatEveryDays && (target.repeatRemaining ?? 0) > 0) {
+      const step = target.repeatEveryDays * 86_400_000;
+      let next = target.scheduledAt.getTime() + step;
+      while (next <= Date.now()) next += step;
+      await prisma.postTarget.create({
+        data: {
+          postId: post.id,
+          accountId: account.id,
+          scheduledAt: new Date(next),
+          captionOverride: target.captionOverride,
+          options: (target.options ?? {}) as object,
+          repeatEveryDays: target.repeatEveryDays,
+          repeatRemaining: target.repeatRemaining! - 1,
+        },
+      });
+    }
+    void sendWebhook(post.user, "post.published", {
+      targetId: target.id,
+      postId: post.id,
+      platform: account.platform,
+      account: account.name,
+      url: result.url ?? null,
+    });
     return "published";
   } catch (e) {
     const err =
@@ -108,6 +134,20 @@ export async function publishTarget(targetId: string): Promise<"published" | "re
             error: (err.reauth ? `Reconnect this account, then retry. ${err.message}` : err.message).slice(0, 1000),
           },
     });
+    if (!retry) {
+      void alertUser(
+        post.user,
+        `a post to ${account.name} failed`,
+        `Your post "${(post.title || post.caption).slice(0, 80)}" could not be published to ${account.name}.\n\nReason: ${err.message}`,
+      );
+      void sendWebhook(post.user, "post.failed", {
+        targetId: target.id,
+        postId: post.id,
+        platform: account.platform,
+        account: account.name,
+        error: err.message,
+      });
+    }
     return retry ? "retry" : "failed";
   }
 }
@@ -119,6 +159,7 @@ export async function claimDueTargets(limit = 200): Promise<string[]> {
     where: {
       status: "SCHEDULED",
       scheduledAt: { lte: now },
+      account: { paused: false },
       OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
     },
     orderBy: { scheduledAt: "asc" },

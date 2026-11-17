@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import type { User } from "@prisma/client";
 import { ZodError, type ZodTypeAny, type z } from "zod";
 import { getUser } from "./auth";
+import { sha256 } from "./crypto";
+import { prisma } from "./db";
 import { env } from "./env";
 
 export class HttpError extends Error {
@@ -14,7 +16,19 @@ export class HttpError extends Error {
 }
 
 type Ctx<P> = { req: NextRequest; params: P; user: User };
-type Opts = { auth?: "user" | "admin" | "none" };
+type Opts = { auth?: "user" | "admin" | "none"; apiKey?: boolean };
+
+/** Resolves `Authorization: Bearer <api key>` to its owner (public API routes only). */
+async function userFromApiKey(req: NextRequest): Promise<User | null> {
+  const token = req.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  if (!token) return null;
+  const key = await prisma.apiKey.findUnique({ where: { keyHash: sha256(token) }, include: { user: true } });
+  if (!key) throw new HttpError(401, "Invalid API key");
+  if (!key.lastUsedAt || Date.now() - key.lastUsedAt.getTime() > 60_000) {
+    await prisma.apiKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date() } });
+  }
+  return key.user;
+}
 
 /** Blocks cross-site form/fetch submissions (CSRF) for state-changing requests. */
 function checkOrigin(req: NextRequest) {
@@ -32,9 +46,10 @@ export function handler<P = Record<string, string>>(
 ) {
   return async (req: NextRequest, route: { params: Promise<P> }) => {
     try {
-      checkOrigin(req);
       const mode = opts.auth ?? "user";
-      const user = mode === "none" ? null : await getUser();
+      const viaKey = opts.apiKey ? await userFromApiKey(req) : null;
+      if (!viaKey) checkOrigin(req); // key-authenticated calls carry no cookie, so CSRF does not apply
+      const user = mode === "none" ? null : (viaKey ?? (await getUser()));
       if (mode !== "none" && !user) throw new HttpError(401, "Please sign in");
       if (mode === "admin" && user?.role !== "ADMIN") throw new HttpError(403, "Admins only");
       const result = await fn({ req, params: await route.params, user: user as User });

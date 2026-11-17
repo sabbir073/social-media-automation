@@ -124,3 +124,34 @@ describe("provider validation", () => {
     expect(getProvider("PINTEREST").validate({ ...base, media: img, options: { boardId: "1" } })).toEqual([]);
   });
 });
+
+describe("advanced features", () => {
+  it("parses RSS and Atom feeds", async () => {
+    const { parseFeed } = await import("@/lib/feeds");
+    const rss = `<?xml version="1.0"?><rss><channel><title>My &amp; Blog</title>
+      <item><title><![CDATA[Hello <b>World</b>]]></title><link>https://a.test/1</link><guid>g1</guid>
+        <description>&lt;p&gt;&lt;img src="https://a.test/i.jpg?x=1&amp;amp;y=2"&gt;&lt;/p&gt;</description></item>
+      <item><title>Second</title><link>https://a.test/2</link><enclosure url="https://a.test/e.png" type="image/png"/></item>
+    </channel></rss>`;
+    const r = parseFeed(rss);
+    expect(r.title).toBe("My & Blog");
+    expect(r.entries).toEqual([
+      { guid: "g1", title: "Hello World", link: "https://a.test/1", image: "https://a.test/i.jpg?x=1&y=2" },
+      { guid: "https://a.test/2", title: "Second", link: "https://a.test/2", image: "https://a.test/e.png" },
+    ]);
+    const atom = `<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom</title>
+      <entry><title>One</title><id>tag:1</id><link rel="self" href="https://a.test/self"/><link rel="alternate" href="https://a.test/one"/></entry></feed>`;
+    expect(parseFeed(atom).entries).toEqual([{ guid: "tag:1", title: "One", link: "https://a.test/one", image: "" }]);
+  });
+  it("adds UTM parameters without overwriting existing ones", async () => {
+    const { withUtm } = await import("@/lib/links");
+    expect(withUtm("https://shop.test/p?a=1", "INSTAGRAM", "spring")).toBe("https://shop.test/p?a=1&utm_source=instagram&utm_medium=social&utm_campaign=spring");
+    expect(withUtm("https://shop.test/?utm_source=x", "FACEBOOK", "")).toBe("https://shop.test/?utm_source=x&utm_medium=social");
+    expect(withUtm("not a url", "FACEBOOK", "c")).toBe("not a url");
+  });
+  it("reads engagement numbers defensively", async () => {
+    const { readMetrics, engagement } = await import("@/lib/metrics-format");
+    expect(engagement(readMetrics({ likes: 5, comments: 2, views: 100, saves: "x" }))).toBe(7);
+    expect(readMetrics(null).views).toBe(0);
+  });
+});

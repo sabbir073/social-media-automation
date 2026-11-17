@@ -86,6 +86,7 @@ export default async function Accounts({
                         : "Not verified yet"}
                   </p>
                 </div>
+                {a.paused && <span className="badge bg-slate-100 text-slate-600">Paused</span>}
                 <StatusBadge status={a.status} />
                 <div className="flex flex-wrap gap-2">
                   {a.status === "NEEDS_REAUTH" && active ? (
@@ -93,6 +94,9 @@ export default async function Accounts({
                   ) : (
                     <ActionButton method="POST" url={`/api/accounts/${a.id}/check`}>Check</ActionButton>
                   )}
+                  <ActionButton method="PATCH" url={`/api/accounts/${a.id}`} body={{ paused: !a.paused }}>
+                    {a.paused ? "Resume" : "Pause"}
+                  </ActionButton>
                   <ActionButton
                     method="DELETE"
                     url={`/api/accounts/${a.id}`}

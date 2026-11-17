@@ -5,6 +5,7 @@ import { Reschedule } from "@/components/Reschedule";
 import { Empty, PlatformBadge, StatusBadge } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { readMetrics } from "@/lib/metrics-format";
 import { formatInZone } from "@/lib/slots";
 
 export const metadata = { title: "Posts" };
@@ -88,6 +89,14 @@ export default async function Posts({ searchParams }: { searchParams: Promise<{ 
                       : `Scheduled for ${formatInZone(t.scheduledAt, user.timezone)}`}
                     {typeof (t.options as any)?.boardName === "string" && ` · Board: ${(t.options as any).boardName}`}
                   </p>
+                  {t.repeatEveryDays && (t.repeatRemaining ?? 0) > 0 && (
+                    <p className="muted text-xs">Repeats every {t.repeatEveryDays} day{t.repeatEveryDays === 1 ? "" : "s"}, {t.repeatRemaining} more time{t.repeatRemaining === 1 ? "" : "s"}</p>
+                  )}
+                  {t.status === "PUBLISHED" && t.metricsAt && (
+                    <p className="text-xs text-slate-600">
+                      {Object.entries(readMetrics(t.metrics)).filter(([, v]) => v > 0).map(([k, v]) => `${v.toLocaleString()} ${k}`).join(" · ") || "No engagement yet"}
+                    </p>
+                  )}
                   {t.error && t.status !== "PUBLISHED" && (
                     <p className="text-sm text-red-700">
                       {t.status === "SCHEDULED" ? `Will retry. Last error: ${t.error}` : t.error}
@@ -109,6 +118,7 @@ export default async function Posts({ searchParams }: { searchParams: Promise<{ 
                       {t.status === "FAILED" ? "Retry now" : "Schedule again"}
                     </ActionButton>
                   )}
+                  <Link href={`/app/compose?from=${t.postId}`} className="btn-secondary">Duplicate</Link>
                   {t.status !== "QUEUED" && t.status !== "PUBLISHING" && (
                     <ActionButton
                       method="DELETE"

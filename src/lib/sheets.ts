@@ -231,7 +231,7 @@ export async function connectSheet(userId: string, url: string) {
   });
 }
 
-async function importMedia(userId: string, urls: string[]): Promise<string[]> {
+export async function importMedia(userId: string, urls: string[]): Promise<string[]> {
   const ids: string[] = [];
   try {
     for (const raw of urls) {
@@ -279,6 +279,82 @@ function statusText(t: { status: string; externalUrl: string | null; error: stri
   }
 }
 
+export type RowContext = {
+  userId: string;
+  timezone: string;
+  accounts: SocialAccount[];
+  boardCache: Map<string, { id: string; name: string }[]>;
+};
+
+/**
+ * Schedules one spreadsheet-style row (sheet sync and CSV bulk upload share this).
+ * Throws an Error with a user-readable message when the row cannot be scheduled.
+ */
+export async function scheduleRow(ctx: RowContext, get: (column: string) => string, replacePostId?: string) {
+  const acct = matchAccount(get("account"), ctx.accounts);
+  if (typeof acct === "string") throw new Error(acct);
+  const when = parseWhen(get("date"), get("time"), ctx.timezone);
+  if (!when) throw new Error(`Cannot read date "${get("date")}" and time "${get("time")}". Use YYYY-MM-DD and HH:MM.`);
+  if (when.getTime() < Date.now() - PAST_GRACE_MS) throw new Error("Date and time are in the past");
+
+  const options: Record<string, unknown> = {};
+  const boardName = get("board");
+  if (acct.platform === "PINTEREST") {
+    if (!boardName) throw new Error("Pinterest rows need a board name in the board column");
+    if (!ctx.boardCache.has(acct.id)) ctx.boardCache.set(acct.id, await listBoards((await accountContext(acct)).accessToken));
+    const board = ctx.boardCache.get(acct.id)!.find((b) => b.name.toLowerCase() === boardName.toLowerCase());
+    if (!board) throw new Error(`No Pinterest board named "${boardName}"`);
+    options.boardId = board.id;
+    options.boardName = board.name;
+  }
+  const privacy = get("privacy").toLowerCase();
+  if (acct.platform === "YOUTUBE" && privacy) options.privacy = privacy;
+
+  const urls = get("media_url").split(/[\s,]+/).filter(Boolean).slice(0, 10);
+  const mediaIds = await importMedia(ctx.userId, urls);
+  try {
+    if (replacePostId) await deletePostWithMedia(replacePostId);
+    return await createPost(
+      ctx.userId,
+      {
+        caption: get("caption"),
+        title: get("title"),
+        link: get("link"),
+        mediaIds,
+        targets: [{ accountId: acct.id, scheduledAt: when, options }],
+      },
+      "sheet",
+    );
+  } catch (e) {
+    await deleteMedia(mediaIds);
+    throw e;
+  }
+}
+
+/** Schedules every row of an uploaded CSV that uses the sheet column layout. */
+export async function importCsv(userId: string, csv: string) {
+  const rows = parseCsv(csv.replace(/^\uFEFF/, ""));
+  const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
+  for (const required of ["account", "date", "caption"]) {
+    if (!header.includes(required)) throw new HttpError(400, `The first row must contain these column names: ${SHEET_COLUMNS.join(", ")}. Missing "${required}".`);
+  }
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { accounts: true } });
+  const ctx: RowContext = { userId, timezone: user.timezone, accounts: user.accounts, boardCache: new Map() };
+  const results: { row: number; ok: boolean; message: string }[] = [];
+  const body = rows.slice(1, MAX_ROWS + 1);
+  for (let i = 0; i < body.length; i++) {
+    const get = (name: string) => (header.indexOf(name) >= 0 ? (body[i][header.indexOf(name)] ?? "").trim() : "");
+    if (!get("account") && !get("date") && !get("caption")) continue;
+    try {
+      await scheduleRow(ctx, get);
+      results.push({ row: i + 2, ok: true, message: "Scheduled" });
+    } catch (e) {
+      results.push({ row: i + 2, ok: false, message: (e as Error).message });
+    }
+  }
+  return results;
+}
+
 export async function syncSheet(sheetId: string): Promise<string> {
   const sheet = await prisma.sheetConnection.findUniqueOrThrow({
     where: { id: sheetId },
@@ -324,45 +400,12 @@ export async function syncSheet(sheetId: string): Promise<string> {
         status = failedRows.get(`${sheet.id}:${rowNumber}`)!.status;
       } else {
         try {
-          const acct = matchAccount(account, sheet.user.accounts);
-          if (typeof acct === "string") throw new Error(acct);
-          const when = parseWhen(date, get(row, "time"), sheet.user.timezone);
-          if (!when) throw new Error(`Cannot read date "${date}" and time "${get(row, "time")}". Use YYYY-MM-DD and HH:MM.`);
-          if (when.getTime() < Date.now() - PAST_GRACE_MS) throw new Error("Date and time are in the past");
-
-          const options: Record<string, unknown> = {};
-          const boardName = get(row, "board");
-          if (acct.platform === "PINTEREST") {
-            if (!boardName) throw new Error("Pinterest rows need a board name in the board column");
-            if (!boardCache.has(acct.id)) boardCache.set(acct.id, await listBoards((await accountContext(acct)).accessToken));
-            const board = boardCache.get(acct.id)!.find((b) => b.name.toLowerCase() === boardName.toLowerCase());
-            if (!board) throw new Error(`No Pinterest board named "${boardName}"`);
-            options.boardId = board.id;
-            options.boardName = board.name;
-          }
-          const privacy = get(row, "privacy").toLowerCase();
-          if (acct.platform === "YOUTUBE" && privacy) options.privacy = privacy;
-
-          const urls = get(row, "media_url").split(/[\s,]+/).filter(Boolean).slice(0, 10);
-          const mediaIds = await importMedia(sheet.userId, urls);
-          try {
-            if (existing) await deletePostWithMedia(existing.postId);
-            const post = await createPost(
-              sheet.userId,
-              {
-                caption: get(row, "caption"),
-                title: get(row, "title"),
-                link: get(row, "link"),
-                mediaIds,
-                targets: [{ accountId: acct.id, scheduledAt: when, options }],
-              },
-              "sheet",
-            );
-            await prisma.sheetRow.create({ data: { sheetId: sheet.id, rowNumber, contentHash: hash, postId: post.id } });
-          } catch (e) {
-            await deleteMedia(mediaIds);
-            throw e;
-          }
+          const post = await scheduleRow(
+            { userId: sheet.userId, timezone: sheet.user.timezone, accounts: sheet.user.accounts, boardCache },
+            (name) => get(row, name),
+            existing?.postId,
+          );
+          await prisma.sheetRow.create({ data: { sheetId: sheet.id, rowNumber, contentHash: hash, postId: post.id } });
           created++;
           status = "Scheduled";
           failedRows.delete(`${sheet.id}:${rowNumber}`);

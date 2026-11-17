@@ -4,6 +4,7 @@ import {
   type AccountCtx,
   type ConnectedAccount,
   type Draft,
+  type Metrics,
   type Provider,
   ProviderError,
   type PublishInput,
@@ -160,5 +161,16 @@ export const pinterest: Provider = {
       }),
     });
     return { externalId: pin.id, url: `https://www.pinterest.com/pin/${pin.id}/` };
+  },
+
+  async metrics(a, id): Promise<Metrics> {
+    const r = await call(`${api()}/pins/${encodeURIComponent(id)}?pin_metrics=true`, { headers: bearer(a.accessToken) });
+    const m = r.pin_metrics?.lifetime_metrics ?? r.pin_metrics?.all_time ?? r.pin_metrics?.["90d"] ?? {};
+    return {
+      views: Number(m.impression ?? 0),
+      saves: Number(m.save ?? 0),
+      likes: Number(m.reaction ?? 0),
+      comments: Number(m.comment ?? 0),
+    };
   },
 };

@@ -44,6 +44,9 @@ export type AccountCtx = {
   meta: Record<string, unknown>;
 };
 
+/** Engagement counters, normalized across networks. Missing keys mean "not reported". */
+export type Metrics = Partial<Record<"likes" | "comments" | "shares" | "views" | "saves", number>>;
+
 export type TokenUpdate = { accessToken: string; refreshToken?: string; expiresAt?: Date };
 
 export class ProviderError extends Error {
@@ -71,6 +74,8 @@ export interface Provider {
   /** Returns human-readable problems; empty means the draft can be published. */
   validate(draft: Draft): string[];
   publish(account: AccountCtx, input: PublishInput): Promise<{ externalId: string; url?: string }>;
+  /** Current engagement numbers for a post this provider published. */
+  metrics?(account: AccountCtx, externalPostId: string): Promise<Metrics>;
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

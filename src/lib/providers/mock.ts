@@ -28,4 +28,9 @@ export const mock: Provider = {
     const id = randomToken(8);
     return { externalId: id, url: `https://example.com/mock/${id}` };
   },
+  async metrics(_a, id) {
+    // Stable fake numbers derived from the post id, so analytics pages have something to show.
+    const n = [...id].reduce((sum, c) => sum + c.charCodeAt(0), 0);
+    return { views: 200 + (n % 900), likes: 10 + (n % 90), comments: n % 12, shares: n % 7 };
+  },
 };

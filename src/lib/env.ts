@@ -74,6 +74,14 @@ export const env = {
       return (process.env.PINTEREST_API_BASE || "https://api.pinterest.com").replace(/\/+$/, "");
     },
   },
+  ai: {
+    get apiKey() {
+      return process.env.ANTHROPIC_API_KEY || "";
+    },
+    get model() {
+      return process.env.AI_MODEL || "claude-haiku-5-5";
+    },
+  },
   get smtpUrl() {
     return process.env.SMTP_URL || "";
   },

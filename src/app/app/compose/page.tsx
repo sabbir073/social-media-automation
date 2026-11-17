@@ -1,18 +1,34 @@
 import Link from "next/link";
 import { Composer } from "@/components/Composer";
 import { Empty } from "@/components/ui";
+import { aiEnabled } from "@/lib/ai";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export const metadata = { title: "New post" };
 
-export default async function Compose() {
+export default async function Compose({ searchParams }: { searchParams: Promise<{ from?: string; media?: string }> }) {
   const user = await requireUser();
-  const accounts = await prisma.socialAccount.findMany({
-    where: { userId: user.id },
-    orderBy: [{ platform: "asc" }, { name: "asc" }],
-    include: { _count: { select: { slots: true } } },
-  });
+  const q = await searchParams;
+  const [accounts, snippets, source, picked] = await Promise.all([
+    prisma.socialAccount.findMany({
+      where: { userId: user.id },
+      orderBy: [{ platform: "asc" }, { name: "asc" }],
+      include: { _count: { select: { slots: true } } },
+    }),
+    prisma.snippet.findMany({ where: { userId: user.id }, orderBy: { name: "asc" } }),
+    // "Duplicate" on the Posts page opens the composer pre-filled from an existing post.
+    q.from
+      ? prisma.post.findFirst({ where: { id: q.from, userId: user.id }, include: { media: { orderBy: { position: "asc" }, include: { media: true } } } })
+      : null,
+    q.media ? prisma.mediaAsset.findFirst({ where: { id: q.media, userId: user.id } }) : null,
+  ]);
+  const toMedia = (m: { id: string; kind: "IMAGE" | "VIDEO"; originalName: string; key: string }) => ({ id: m.id, kind: m.kind, name: m.originalName, url: `/media/${m.key}` });
+  const initial = source
+    ? { caption: source.caption, title: source.title, link: source.link, media: source.media.map((pm) => toMedia(pm.media)) }
+    : picked
+      ? { caption: "", title: "", link: "", media: [toMedia(picked)] }
+      : undefined;
   return (
     <div className="max-w-3xl space-y-6">
       <div>
@@ -26,6 +42,9 @@ export default async function Compose() {
       ) : (
         <Composer
           timezone={user.timezone}
+          aiEnabled={aiEnabled()}
+          initial={initial}
+          snippets={snippets.map((s) => ({ id: s.id, name: s.name, body: s.body }))}
           accounts={accounts.map((a) => ({
             id: a.id,
             name: a.name,
